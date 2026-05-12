@@ -1,0 +1,36 @@
+config.py
+*.pyc
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.env/
+
+# Environment variables
+.env
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
+
+# HTML debug
+*.html
+
+# VSCode
+.vscode/
+
+# JetBrains / PyCharm
+.idea/
+
+# Selenium temp
+chromedriver.log

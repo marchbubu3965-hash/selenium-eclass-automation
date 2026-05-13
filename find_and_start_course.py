@@ -176,7 +176,7 @@ def _is_already_completed(
         log.warning("⚠️  認證時數未知，無法判斷完成狀態，繼續上課")
         return False
 
-    threshold_secs = cert_hours * 3600 * read_ratio
+    threshold_secs = cert_hours * 3600 * 0.5
 
     try:
         # ── 取得 div.majorstatus 內所有子 div ────────────────────────
@@ -217,9 +217,8 @@ def _is_already_completed(
 
         log.info(
             f"⏱️  門檻：{int(threshold_secs)}s"
-            f"（認證 {cert_hours}h × {read_ratio}）"
         )
-        if read_secs <= threshold_secs:
+        if read_secs < threshold_secs:
             log.info("ℹ️  閱讀時數未達門檻，繼續上課")
             return False
 

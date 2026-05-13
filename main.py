@@ -72,11 +72,6 @@ def main():
         stop_flag = [False]   # 共用停止旗標
         max_secs  = args.max_hours * 3600
 
-        def on_course_complete():
-            """課程完成時的回呼。"""
-            log.info("🎉 課程完成！停止所有背景執行緒")
-            stop_flag[0] = True
-
         # 防閒置執行緒
         idle_thread = threading.Thread(
             target=run_anti_idle_loop,

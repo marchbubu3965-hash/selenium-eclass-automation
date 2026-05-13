@@ -1,3 +1,4 @@
+
 # """
 # 4_anti_idle.py
 # 功能：定時模擬使用者互動，防止網站閒置偵測踢下線。
@@ -5,9 +6,9 @@
 # """
 
 # import time
-# import random
 # import logging
 # from selenium import webdriver
+# from selenium.webdriver.common.action_chains import ActionChains
 # from selenium.common.exceptions import WebDriverException
 
 # import config
@@ -25,69 +26,35 @@
 # def anti_idle(driver: webdriver.Chrome):
 #     """
 #     執行一次防閒置動作：
-#       1. 隨機小幅滾動頁面
-#       2. 觸發滑鼠移動事件
-#       3. 確保 <video> 持續播放
-#       4. 處理 iframe 內的影片
+#       1. 滑鼠移動至 (300, 130) 並左鍵點擊
+#       2. 等待 2 秒
+#       3. 滑鼠移動至 (300, 150) 並左鍵點擊
 #     """
 #     try:
-#         # 1. 小幅隨機滾動
-#         scroll_y = random.randint(-80, 80)
-#         driver.execute_script(f"window.scrollBy(0, {scroll_y});")
+#         time.sleep(3)
 
-#         # 2. 模擬滑鼠移動
-#         driver.execute_script("""
-#             document.dispatchEvent(new MouseEvent('mousemove', {
-#                 bubbles: true,
-#                 cancelable: true,
-#                 clientX: Math.random() * window.innerWidth,
-#                 clientY: Math.random() * window.innerHeight
-#             }));
-#         """)
+#         # 1. 移動至 (300, 130) 並點擊
+#         actions = ActionChains(driver)
+#         actions.move_by_offset(300, 130).click()
+#         actions.perform()
+#         log.info("🖱️  滑鼠點擊 (300, 130) 完成")
+#         # 重設位置
+#         ActionChains(driver).move_by_offset(-300, -130).perform()
 
-#         # 3. 主頁面影片持續播放
-#         driver.execute_script("""
-#             document.querySelectorAll('video').forEach(function(v) {
-#                 if (v.paused && !v.ended) {
-#                     v.play().catch(function(){});
-#                 }
-#             });
-#         """)
+#         time.sleep(2)
 
-#         # 4. iframe 內影片
-#         _handle_iframes(driver)
-
-#         log.info(f"🖱️  防閒置完成（頁面滾動 {scroll_y:+d}px）")
+#         # 2. 移動至 (300, 150) 並點擊
+#         actions = ActionChains(driver)
+#         actions.move_by_offset(300, 150).click()
+#         actions.perform()
+#         log.info("🖱️  滑鼠點擊 (300, 150) 完成")
+#         # 重設位置
+#         ActionChains(driver).move_by_offset(-300, -150).perform()
 
 #     except WebDriverException as e:
 #         log.warning(f"防閒置時 WebDriver 發生問題：{e}")
 #     except Exception as e:
 #         log.warning(f"防閒置發生未預期錯誤：{e}")
-
-
-# def _handle_iframes(driver: webdriver.Chrome):
-#     """切入每個 iframe，確保影片播放並觸發互動事件。"""
-#     try:
-#         iframes = driver.find_elements("tag name", "iframe")
-#     except Exception:
-#         return
-
-#     for iframe in iframes:
-#         try:
-#             driver.switch_to.frame(iframe)
-#             driver.execute_script("""
-#                 // 影片繼續播放
-#                 document.querySelectorAll('video').forEach(function(v) {
-#                     if (v.paused && !v.ended) { v.play().catch(function(){}); }
-#                 });
-#                 // 觸發互動事件（部分 SCORM 課程依賴此事件計算時間）
-#                 document.dispatchEvent(new MouseEvent('mousemove', {bubbles: true}));
-#                 document.dispatchEvent(new Event('click', {bubbles: true}));
-#             """)
-#         except Exception:
-#             pass
-#         finally:
-#             driver.switch_to.default_content()
 
 
 # # ══════════════════════════════════════════
@@ -125,6 +92,8 @@
 
 # # ── 單獨執行測試 ──────────────────────────
 # if __name__ == "__main__":
+#     import sys, os
+#     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 #     from open_browser import open_browser
 #     from login import login
 
@@ -171,23 +140,20 @@ def anti_idle(driver: webdriver.Chrome):
     try:
         time.sleep(3)
 
-        # 1. 移動至 (300, 130) 並點擊
+        # 1. 移動至 (300, 130) 並點擊，等 2 秒，移動至 (300, 150) 並點擊
+        # 用單一 ActionChains 鏈串所有動作，避免產生多餘的 WebDriver 連線
         actions = ActionChains(driver)
-        actions.move_by_offset(300, 130).click()
-        actions.perform()
-        log.info("🖱️  滑鼠點擊 (300, 130) 完成")
-        # 重設位置
-        ActionChains(driver).move_by_offset(-300, -130).perform()
-
-        time.sleep(2)
-
-        # 2. 移動至 (300, 150) 並點擊
-        actions = ActionChains(driver)
-        actions.move_by_offset(300, 150).click()
-        actions.perform()
-        log.info("🖱️  滑鼠點擊 (300, 150) 完成")
-        # 重設位置
-        ActionChains(driver).move_by_offset(-300, -150).perform()
+        (
+            actions
+            .move_by_offset(300, 130)
+            .click()
+            .pause(2)
+            .move_by_offset(0, 20)      # 相對移動：(300,130) → (300,150)
+            .click()
+            .move_by_offset(-300, -150) # 重設回原點
+            .perform()
+        )
+        log.info("🖱️  滑鼠點擊 (300, 130) → (300, 150) 完成")
 
     except WebDriverException as e:
         log.warning(f"防閒置時 WebDriver 發生問題：{e}")

@@ -585,6 +585,20 @@ def find_and_start_course(
 
         # ── 本頁全部完成，偵測是否有下一頁 ──────────────────────────
         log.info(f"✅ 第 {page_num} 頁所有課程處理完畢，檢查是否有下一頁...")
+
+        # 先返回課程列表，再偵測下一頁
+        log.info("返回課程列表...")
+        driver.get(PERSONAL_AREA_URL + "?tab=1")
+        time.sleep(2)
+        if page_num > 1:
+            _navigate_to_page(driver, wait, page_num)
+        try:
+            wait.until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "img[alt='課程代表圖']")))
+        except TimeoutException:
+            log.warning("返回後找不到課程圖片，結束")
+            break
+
         if _go_to_next_page(driver, wait):
             page_num += 1
             time.sleep(2)
@@ -612,17 +626,27 @@ def _go_to_next_page(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
     """
     try:
         next_btn = driver.find_element(By.CSS_SELECTOR, "i.paginate-next")
-        # 檢查父元素是否 disabled
-        parent = next_btn.find_element(By.XPATH, "..")
-        aria_disabled = parent.get_attribute("aria-disabled") or ""
-        class_attr = parent.get_attribute("class") or ""
-        if "disabled" in aria_disabled.lower() or "disabled" in class_attr.lower():
-            log.info("ℹ️  下一頁按鈕存在但已 disabled，視為最後一頁")
+        parent = next_btn.find_element(By.XPATH, "..")  # 父層 <a>
+
+        parent_class = parent.get_attribute("class") or ""
+        parent_title = parent.get_attribute("title") or ""
+
+        # # 此分頁元件用 class="undefined" 表示該按鈕無作用（停用）
+        # if "undefined" in parent_class.lower():
+        #     log.info("ℹ️  下一頁按鈕為 undefined（已是最後一頁）")
+        #     return False
+
+        # 額外防呆：沒有 title 或 href 也視為無效
+        parent_href = parent.get_attribute("href") or ""
+        if not parent_href and not parent_title:
+            log.info("ℹ️  下一頁按鈕無 href 及 title，視為最後一頁")
             return False
+
         next_btn.click()
         log.info("➡️  已點擊下一頁")
         time.sleep(2)
         return True
+
     except NoSuchElementException:
         log.info("ℹ️  找不到下一頁按鈕，已是最後一頁")
         return False

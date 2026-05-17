@@ -485,7 +485,7 @@ EXAM_LOCK = threading.Lock()
 # =================================================================
 # Gemini API 設定
 # =================================================================
-GEMINI_API_KEY = "AIzaSyCUTWVn-WdA1dsyarNyuyNmZKbacdeS7fQ"
+GEMINI_API_KEY = "AIzaSyB8AhdLoXWtRw1UMOavlIiC3yjMdfqPdYs"
 
 client = genai.Client(
     api_key=GEMINI_API_KEY

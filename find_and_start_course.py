@@ -304,7 +304,6 @@
 #         find_and_start_course(driver)
 #     driver.quit()
 
-
 import time
 import random
 import re
@@ -324,7 +323,7 @@ from selenium.common.exceptions import (
 import config
 from anti_idle import run_anti_idle_loop
 from fill_questionnaire import fill_questionnaire
-from do_exam import do_exam  # 確保你有建立此檔案
+from do_exam import do_exam 
 
 logging.basicConfig(
     level=logging.INFO,
@@ -392,173 +391,182 @@ def find_and_start_course(driver: webdriver.Chrome, stop_flag: list = None, _dri
 
 def _find_and_start_course_inner(_d, _w, stop_flag: list) -> bool:
     """
-    新版流程：
-    永遠只處理列表中的第一門課
-    完成後課程會消失
-    再繼續下一門
+    新版分頁判斷流程：
+    1. 在列表頁只抓「認證時數」
+    2. 點進課程圖示後，在課程內頁的「我的課程狀態」判斷閱讀時數、問卷、測驗
     """
+    current_index = 0  # 從第一門課開始檢查
 
     while True:
-
         # ---------------------------------------------------------
-        # Step 1：回個人專區
+        # Step 1：回個人專區 (課程列表頁)
         # ---------------------------------------------------------
-        log.info("── 回到個人專區")
-
+        log.info("── 回到個人專區列表頁")
         _d().get(PERSONAL_AREA_URL + "?tab=1")
-
         time.sleep(2)
-
         _dismiss_notice_popup(_d())
 
         # ---------------------------------------------------------
-        # Step 2：檢查是否還有課程
+        # Step 2：檢查是否還有課程圖示
         # ---------------------------------------------------------
         try:
-
             _w().until(
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, "img[alt='課程代表圖']")
-                )
+                EC.presence_of_element_located((By.CSS_SELECTOR, "img[alt='課程代表圖']"))
             )
-
-            course_imgs = _d().find_elements(
-                By.CSS_SELECTOR,
-                "img[alt='課程代表圖']"
-            )
-
+            course_imgs = _d().find_elements(By.CSS_SELECTOR, "img[alt='課程代表圖']")
         except TimeoutException:
-
             log.info("🏁 已無任何課程")
             return True
 
-        # ---------------------------------------------------------
-        # 沒課程
-        # ---------------------------------------------------------
         if len(course_imgs) == 0:
-
             log.info("✅ 所有課程已完成")
             return True
 
-        log.info(f"📚 剩餘課程數量: {len(course_imgs)}")
+        if current_index >= len(course_imgs):
+            log.info("🎉 列表中所有課程皆已檢查/處理完畢！程式結束。")
+            return True
 
         # =========================================================
-        # 永遠處理第一門
+        # 階段一：在【列表頁】僅判斷認證時數，並點擊進入
         # =========================================================
         try:
+            log.info(f"🔍 [列表頁] 正在檢查第 {current_index + 1} 門課程的認證時數...")
+            
+            # 1. 僅在外層取得認證時數
+            cert_hours = _get_cert_hours(_d(), current_index)
+            if cert_hours is None:
+                log.warning(f"⚠️ 無法取得第 {current_index + 1} 門課的認證時數，跳下一門。")
+                current_index += 1
+                continue
+                
+            log.info(f"📐 認證時數: {cert_hours} 小時 (目標閱讀需達 {cert_hours * 0.5} 小時)")
 
-            # -----------------------------------------------------
-            # 1. 取得認證時數
-            # -----------------------------------------------------
-            cert_hours = _get_cert_hours(_d(), 0)
+            # 2. 直接點擊圖示進入課程內頁
+            course_imgs[current_index].click()
+            time.sleep(3)  # 等待進入內頁
 
-            # -----------------------------------------------------
-            # 2. 點第一門課
-            # -----------------------------------------------------
-            course_imgs[0].click()
+            # =========================================================
+            # 階段二：在【課程內頁】判斷閱讀時數、問卷、測驗
+            # =========================================================
+            status, read_secs = _check_inner_page_status(_d(), cert_hours)
+            log.info(f"📊 課程內頁狀態判定結果: {status}")
 
-            time.sleep(2)
+            if status == "completed":
+                log.info(f"⏭️ 本課程已達標 (時數夠、問卷已填、且已測驗過)，自動跳到下一門。")
+                current_index += 1  # 往下檢查下一門
+                continue
 
-            # -----------------------------------------------------
-            # 3. 檢查課程狀態
-            # -----------------------------------------------------
-            status, read_secs = _is_already_completed(
-                _d(),
-                cert_hours
-            )
-
-            log.info(f"📊 目前課程狀態: {status}")
-
-            # -----------------------------------------------------
-            # 4. 如果未完成閱讀
-            # -----------------------------------------------------
+            # 根據內頁判定的狀態，精準執行對應動作
             if status == "in_progress":
-
-                log.info("🚀 開始上課流程")
-
-                _start_learning(
-                    _d(),
-                    _w(),
-                    stop_flag,
-                    cert_hours,
-                    read_secs
-                )
-
+                log.info("🚀 [分流 1] 閱讀時數不足，開始上課流程...")
+                _start_learning(_d(), _w(), stop_flag, cert_hours, read_secs)
                 time.sleep(2)
 
-            # -----------------------------------------------------
-            # 5. 填問卷
-            # -----------------------------------------------------
-            log.info("📝 開始填寫問卷")
+            elif status == "need_survey":
+                log.info("📝 [分流 2] 時數足夠但問卷未填，開始填寫問卷...")
+                try:
+                    fill_questionnaire(_d())
+                except Exception as e:
+                    log.warning(f"⚠️ 問卷填寫失敗: {e}")
+                time.sleep(2)
 
-            try:
-                fill_questionnaire(_d())
-            except Exception as e:
-                log.warning(f"⚠️ 問卷填寫失敗: {e}")
+            elif status == "need_exam":
+                log.info("🤖 [分流 3] 時數與問卷已OK，且尚未測驗，開始測驗流程...")
+                try:
+                    if _click(_w(), By.CSS_SELECTOR, ".btnAction", "點擊上課去"):
+                        time.sleep(3)
+                        do_exam(_d())
+                except Exception as e:
+                    log.error(f"❌ 測驗失敗: {e}")
 
-            time.sleep(2)
-
-            # -----------------------------------------------------
-            # 6. 開始測驗
-            # -----------------------------------------------------
-            log.info("🤖 開始測驗流程")
-
-            try:
-
-                if _click(
-                    _w(),
-                    By.CSS_SELECTOR,
-                    ".btnAction",
-                    "點擊上課去"
-                ):
-
-                    time.sleep(3)
-
-                    do_exam(_d())
-
-            except Exception as e:
-
-                log.error(f"❌ 測驗失敗: {e}")
-
-            # -----------------------------------------------------
-            # 7. 回列表
-            # -----------------------------------------------------
-            log.info("↩️ 返回課程列表")
-
-            _d().get(PERSONAL_AREA_URL + "?tab=1")
-
-            time.sleep(2)
+            # 處理完這門課的目前需求後，重置回到第 1 門重新檢視
+            current_index = 0 
 
         except SessionExpiredError:
             raise
-
         except Exception as e:
-
             log.error(f"❌ 課程處理失敗: {e}")
-
-            try:
-                _d().get(PERSONAL_AREA_URL + "?tab=1")
-            except:
-                pass
-
+            current_index += 1  # 發生未知錯誤時跳過這門，避免無窮死迴圈
             time.sleep(2)
 
+
+def _check_inner_page_status(driver, cert_hours: float, read_ratio: float = 0.5) -> tuple:
+    """
+    【全新設計】在課程內頁中，尋找「我的課程狀態」區塊並解析：
+    1. 閱讀時數是否 >= 認證時數的一半
+    2. 有的話，繼續判斷問卷是否已填
+    3. 有的話，最後判斷測驗欄位是否有數字
+    """
+    threshold_secs = cert_hours * 3600 * read_ratio
+    
+    try:
+        # 💡 使用 XPath 精準定位包含「我的課程狀態」的 span 標籤
+        # 並一併等待它的父層或周圍的狀態區塊加載出來
+        status_span = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//span[contains(text(), '我的課程狀態')]"))
+        )
+        
+        # 向上尋找包含完整狀態資訊的容器文字（通常是整張狀態表格或大區塊）
+        # 這裡我們直接抓取 span 附近、或是整個內頁主體文字來比對
+        container_element = driver.find_element(By.XPATH, "//span[contains(text(), '我的課程狀態')]/ancestor::div[1] | //body")
+        text = container_element.text.replace(" ", "")
+        
+        read_secs = 0
+        survey_done = "已填" in text
+        
+        # 1. 提取目前的閱讀時數
+        time_match = re.search(r"閱讀時數：(\d{1,3}:\d{2}:\d{2})", text)
+        if time_match: 
+            read_secs = _parse_read_seconds(time_match.group(1))
+            log.info(f"⏱️ 內頁偵測到目前閱讀時數: {time_match.group(1)} ({read_secs}秒)")
+        else:
+            log.warning("⚠️ 內頁文字中找不到『閱讀時數：』格式，預設為 0 秒")
+
+        # 💡 【判斷 1】 判斷閱讀時數是否小於「認證時數的一半」
+        if read_secs < threshold_secs:
+            return "in_progress", read_secs
+
+        # 💡 【判斷 2】 時數夠了，繼續判斷問卷：未填 -> 填寫問卷
+        if not survey_done:
+            return "need_survey", read_secs
+
+        # 💡 【判斷 3】 時數夠、問卷已填，判斷測驗是否有數字
+        score_match = re.search(r"測驗：(\d+)", text)
+        if score_match:
+            # 有找到任何數字（不管是 0 還是 50 還是 100），代表已測驗過 -> 跳下一門课
+            log.info(f"ℹ️ 測驗欄位已有分數 ({score_match.group(1)})，不重複測驗。")
+            return "completed", read_secs  
+        else:
+            # 沒數字（顯示 測驗：--）-> 去測驗
+            log.info("ℹ️ 測驗欄位無數字(顯示--)，準備進入測驗。")
+            return "need_exam", read_secs
+            
+    except Exception as e:
+        log.error(f"❌ 解析內頁課程狀態失敗: {e}")
+        # 如果找不到元件，保守回傳 in_progress 讓程式嘗試點擊上課去
+        return "in_progress", 0
+
+# 以下為原程式碼保留未改動部分 -----------------------------------------
 
 def _start_learning(driver, wait, stop_flag, cert_hours, read_secs) -> bool:
     """點擊上課去並執行防閒置"""
     try:
+        read_ratio = 0.5
+        if cert_hours:
+            max_idle_secs = max(0, int(cert_hours * 3600 * read_ratio - read_secs))
+        else:
+            max_idle_secs = 1800 
+
+        if max_idle_secs <= 0:
+            log.info("🎯 偵測到目前閱讀時數已達標，不需啟動防閒置，直接跳過上課流程。")
+            return True
+
         goto_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btnAction")))
         goto_btn.click()
         time.sleep(3)
-        
-        # 計算需要防閒置的時間
-        if cert_hours:
-            max_idle_secs = max(0, int(cert_hours * 3600 * 0.53 - read_secs))
-        else:
-            max_idle_secs = 1800 # 預設 30 分鐘
 
         log.info(f"🔄 啟動防閒置，預計執行 {max_idle_secs} 秒")
-        idle_interval = random.randint(600, 720) # 10-12 分鐘隨機
+        idle_interval = random.randint(600, 720) 
         
         stop_flag[0] = False
         idle_thread = threading.Thread(
@@ -568,49 +576,11 @@ def _start_learning(driver, wait, stop_flag, cert_hours, read_secs) -> bool:
         )
         idle_thread.start()
         
-        # 監控
         _watch_idle_thread(driver, idle_thread, stop_flag, 0, max_idle_secs=max_idle_secs)
         return True
     except Exception as e:
         log.error(f"啟動學習失敗: {e}")
         return False
-
-def _is_already_completed(driver, cert_hours, read_ratio: float = 0.5) -> tuple:
-    """
-    回傳 (status, read_secs)
-    status: "completed", "need_survey", "need_exam", "in_progress"
-    """
-    if cert_hours is None: return "unknown", 0
-    threshold_secs = cert_hours * 3600 * read_ratio
-
-    try:
-        status_div = driver.find_element(By.CSS_SELECTOR, "div.majorstatus")
-        text = status_div.text.replace(" ", "")
-        
-        read_secs = 0
-        survey_done = "已填" in text
-        exam_score = 0
-        
-        # 提取時數
-        time_match = re.search(r"閱讀時數：(\d{1,3}:\d{2}:\d{2})", text)
-        if time_match: read_secs = _parse_read_seconds(time_match.group(1))
-        
-        # 提取分數
-        score_match = re.search(r"測驗：(\d+)", text)
-        if score_match: exam_score = int(score_match.group(1))
-
-        log.info(f"📊 狀態檢查: 時數 {read_secs}/{int(threshold_secs)}s, 問卷: {'V' if survey_done else 'X'}, 分數: {exam_score}")
-
-        if read_secs < threshold_secs:
-            return "in_progress", read_secs
-        if not survey_done:
-            return "need_survey", read_secs
-        if exam_score < 75:
-            return "need_exam", read_secs
-            
-        return "completed", read_secs
-    except:
-        return "unknown", 0
 
 def _parse_read_seconds(time_str: str) -> int:
     try:

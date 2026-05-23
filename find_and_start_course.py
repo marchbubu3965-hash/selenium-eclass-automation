@@ -254,7 +254,7 @@ def _start_learning(driver, wait, stop_flag, cert_hours, read_secs) -> bool:
     try:
         read_ratio = 0.5
         if cert_hours:
-            max_idle_secs = max(0, int(cert_hours * 3600 * read_ratio + 180 - read_secs))
+            max_idle_secs = max(0, int(cert_hours * 3600 * read_ratio + 300 - read_secs))
         else:
             max_idle_secs = 1800 
 

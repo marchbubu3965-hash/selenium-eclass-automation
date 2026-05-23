@@ -37,15 +37,15 @@ def anti_idle(driver: webdriver.Chrome):
         actions = ActionChains(driver)
         (
             actions
-            .move_by_offset(300, 130)
+            .move_by_offset(300, 150)
             .click()
             .pause(2)
-            .move_by_offset(0, 20)      # 相對移動：(300,130) → (300,150)
+            .move_by_offset(0, 30)      # 相對移動：(300,150) → (300,170)
             .click()
-            .move_by_offset(-300, -150) # 重設回原點
+            .move_by_offset(-300, -180) # 重設回原點
             .perform()
         )
-        log.info("🖱️  滑鼠點擊 (300, 130) → (300, 150) 完成")
+        log.info("🖱️  滑鼠點擊 (300, 150) → (300, 180) 完成")
 
     except WebDriverException as e:
         log.warning(f"防閒置時 WebDriver 發生問題：{e}")
